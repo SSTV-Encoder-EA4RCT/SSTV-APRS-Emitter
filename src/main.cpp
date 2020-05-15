@@ -1,9 +1,6 @@
 /**
  * @author: Fran Acién and David Arias, with the help of Pablo Alvarez and Dani Kholer
- *  SSTV emitter using arduino DUE
- *
- *
- *  Note: I am using millis() instead of delay because it has more accurate
+ *  SSTV and APRS emitter using arduino DUE
 **/
 
 #include <Arduino.h>
@@ -124,13 +121,13 @@ volatile byte buffG[320]; // Buffer conintating Green values of the line
 volatile byte buffB[320]; // Buffer conintating Blue values of the line
 
 volatile byte sEm = 0;    // State of Emition
-                    // 0 not emitting
-                    // 1 emitting line (NOT HEADER OR VOX)
-                    // 2 Change Color
+                          // 0 not emitting
+                          // 1 emitting line (NOT HEADER OR VOX)
+                          // 2 Change Color
 
-volatile byte sCol = 0;   // Transmitting color Green
-                    // Transmitting color Blue
-                    // Transmitting color Red
+volatile byte sCol = 0;   // 0 Transmitting color Green
+                          // 1 Transmitting color Blue
+                          // 2 Transmitting color Red
 
 volatile int tp = 0;     // Index of pixel while transmitting with timer
 volatile int line;
@@ -301,34 +298,31 @@ const uint8_t l_fonts[23][5] = {
 };
 
 // SSTV Prototypes
-uint16_t playPixel(long pixel);
-uint16_t scottie_freq(uint8_t c);
-void vox_tone();
-void scottie1_calibrationHeader();
-void transmit_micro(int freq, float duration);
-void transmit_mili(int freq, float duration);
-void scottie1_transmit_file(char* filename);
-void shot_pic();
-void jpeg_decode(char* filename, char* fileout);
-void writeHeader(File* dst);
+void vox_tone();    // Transmit VOX tone. Used at the beginning of a SSTV transmission
+void scottie1_calibrationHeader();    // Transmit calibration header. Used at the beginning of a SSTV transmission after VOX tone
+void scottie1_transmit_file(char* filename);  // Transmit SSTV file
+void shot_pic();  // Take picture with camera
+void jpeg_decode(char* filename, char* fileout); // Decode picture from JPG to binarie
+void writeHeader(File* dst);    // Write in binary the content of sensors
+void transmit_mili(int freq, float duration); // Put frequency with synthesizer
 
 // APRS prototypes
-void read_mad(vector<int16_t>* m);
-void read_imu(vector<int16_t>* a, vector<int16_t>* g);
-void read_imu(vector<int16_t>* a);
-void read_bar(Bar* res);
-void read_gps(Gps* res);
-void read_gps();
-void read_coords(Gps* res);
+void read_mag(vector<int16_t>* m);  // Read magnetometer
+void read_imu(vector<int16_t>* a, vector<int16_t>* g);  // Read imu
+void read_imu(vector<int16_t>* a);  // Read imu with accelerometer values
+void read_bar(Bar* res);  // Read barometer sensor
+void read_gps(Gps* res);  // Read GPS values
+void read_coords(Gps* res); // Read coordinates from GPS
 void print_sensors(void);  // Print values of mad imu and bar
 
-void set_nada_1200(void);
+void set_nada_1200(void); // Set APRS baud rate
 void set_nada_2400(void);
 void set_nada(bool nada);
 
-void send_char_NRZI(unsigned char in_byte, bool enBitStuff);
-void send_string_len(const char *in_string, int len);
+void send_char_NRZI(unsigned char in_byte, bool enBitStuff);  // Send char over APRS
+void send_string_len(const char *in_string, int len);   // Send string over APRS
 
+// CRC functions
 void calc_crc(bool in_bit);
 void send_crc(void);
 void randomize(unsigned int &var, unsigned int low, unsigned int high);
@@ -341,6 +335,11 @@ void send_payload(char type);
 void print_code_version(void);
 void print_debug(char type);
 
+// Timer used when emitting SSTV.
+// State of Emition sEm
+// 0 not emitting
+// 1 emitting line (NOT HEADER OR VOX)
+// 2 Change Color
 void timer1_interrupt(){
   if (sEm == 1){
     if(tp < 320){  // Transmitting pixels
@@ -429,7 +428,7 @@ void loop() {
   // Then it sends SSTV picture and wait tx_delay
 
   read_imu(&a, &g);
-  read_mad(&m);
+  read_mag(&m);
   read_bar(&bar);
   read_gps(&gps);
 
@@ -457,6 +456,13 @@ void loop() {
   Timer1.start();
   // Take picture
   shot_pic();
+
+  // Creting decoded picture with the same name as origin picture
+  strcpy(pic_decoded_filename, pic_filename);
+  pic_decoded_filename[8] = 'B';
+  pic_decoded_filename[9] = 'I';
+  pic_decoded_filename[10] = 'N';
+
   // Decode picture
   jpeg_decode(pic_filename, pic_decoded_filename);
   // Send decoded picture with SSTV using synthesizer
@@ -469,14 +475,18 @@ void loop() {
 }
 
 /**
- * Get output frequency given a color component (R, G, B) from 0 to 255
- * @param uint8_t c - single color component from 0 to 255
- * @return uint16_t - scottie1 frequency
-**/
-uint16_t scottie_freq(uint8_t c){
-  return 1500 + (c * COLORCORRECTION);
+ * Set a frequency for a certain amount of time
+ * @param int freq - Frequency
+ * @param float duration - duration in milliseconds
+ */
+void transmit_mili(int freq, float duration){
+  DDS.setfreq(freq, phase);
+  delay(duration);
 }
 
+/**
+ * Emit VOX tone. Its optional.
+ */
 void vox_tone(){
   /** VOX TONE (OPTIONAL) **/
   transmit_mili(1900, 100);
@@ -489,6 +499,9 @@ void vox_tone(){
   transmit_mili(1500, 100);
 }
 
+/**
+ * Emit calibration header with Scottie 1 propperties
+ */
 void scottie1_calibrationHeader(){
   /** CALIBRATION HEADER **/
   transmit_mili(1900, 300);
@@ -507,25 +520,9 @@ void scottie1_calibrationHeader(){
 }
 
 /**
- * Set a frequency for a certain amount of time
- * @param int freq - Frequency
- * @param float duration - duration in microseconds
+ * Transmit decoded picture with SSTV. Picture must be saved as RGB 24 bits
+ * @param filename Filename of the decoded picture on the SD
  */
-void transmit_micro(int freq, float duration){
-  DDS.setfreq(freq, phase);
-  delayMicroseconds(duration);
-}
-
-/**
- * Set a frequency for a certain amount of time
- * @param int freq - Frequency
- * @param float duration - duration in milliseconds
- */
-void transmit_mili(int freq, float duration){
-  DDS.setfreq(freq, phase);
-  delay(duration);
-}
-
 void scottie1_transmit_file(char* filename){
   /*
   Be aware that you have to read variables on sync torch due its 9 ms instead 1.5 ms of the sync Pulse
@@ -635,6 +632,12 @@ void scottie1_transmit_file(char* filename){
   }
 }
 
+
+/**
+ * Convert Jpeg picture to RGB-24 bits decoded picture
+ * @param filename Original JPEG picture saved on SD
+ * @param fileout  Destination file where saved data
+ */
 void jpeg_decode(char* filename, char* fileout){
   uint8 *pImg;
   int x,y,bx,by;
@@ -643,16 +646,6 @@ void jpeg_decode(char* filename, char* fileout){
   int pxSkip;
 
   Serial.begin(115200);
-
-  Serial.println("Creating decoded picture file...");
-
-  strcpy(pic_decoded_filename, pic_filename);
-  pic_decoded_filename[8] = 'B';
-  pic_decoded_filename[9] = 'I';
-  pic_decoded_filename[10] = 'N';
-
-  Serial.print("Writting on: ");
-  Serial.println(pic_decoded_filename);
 
   // Open the file for writing
   File imgFile = SD.open(fileout, FILE_WRITE);
@@ -772,6 +765,9 @@ void jpeg_decode(char* filename, char* fileout){
   Serial.end();
 }
 
+/**
+ * Shot picture using adafruit camera
+ */
 void shot_pic(){
   Serial.begin(115200);
 
@@ -847,6 +843,10 @@ void shot_pic(){
   Serial.end();
 }
 
+/**
+ * Write a 11 lines height header with GPS values
+ * @param dst Destination of 24-bit RGB values
+ */
 void writeHeader(File* dst){
   int x,y;
   byte sortBuf[10560]; //320(px)*11(lines)*3(bytes) // Header buffer
@@ -894,6 +894,10 @@ void writeHeader(File* dst){
   }
 }
 
+/**
+ * Read GPS values
+ * @param res Pointer to Gps struct where save the files
+ */
 void read_gps(Gps* res){
   GPS.begin(9600);
   // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
@@ -934,6 +938,11 @@ void read_gps(Gps* res){
   GPSSerial.end();
 }
 
+
+/**
+ * Complete GPS struct adding lati and loni, GPS values formatted for APRS
+ * @param res Struct of GPS data
+ */
 void read_coords(Gps* res){
   res->fix = GPS.fix;
   if (GPS.fix) {
@@ -946,23 +955,39 @@ void read_coords(Gps* res){
   }
 }
 
-
-void read_mad(vector<int16_t>* m){
+/**
+ * Read magnetometer data
+ * @param m Pointer to magnetometer struct
+ */
+void read_mag(vector<int16_t>* m){
   mag.read();
   memcpy(m, &mag.m, sizeof(vector<int16_t>));
 }
 
+/**
+ * Read imu data
+ * @param a Pointer to a struct of imu data
+ * @param g Pointer to g struct of imut data
+ */
 void read_imu(vector<int16_t>* a, vector<int16_t>* g){
   imu.read();
   memcpy(a, &imu.a, sizeof(vector<int16_t>));
   memcpy(g, &imu.g, sizeof(vector<int16_t>));
 }
 
+/**
+ * Read a data of imut
+ * @param a Pointer to a struct of imu data
+ */
 void read_imu(vector<int16_t>* a){
   imu.read();
   memcpy(a, &imu.a, sizeof(vector<int16_t>));
 }
 
+/**
+ * Read barometer
+ * @param res Bameter struct
+ */
 void read_bar(Bar* res){
   res->pressure = ps.readPressureMillibars();
   res->altitude = ps.pressureToAltitudeMeters(res->pressure);
@@ -972,6 +997,10 @@ void read_bar(Bar* res){
   snprintf(heightpckt, sizeof(heightpckt), "%07d", (int) res->altitude);
 }
 
+
+/**
+ * Print Sensor values for debugging
+ */
 void print_sensors(void){
   Serial.begin(115200);
   char buff[80];
@@ -1007,8 +1036,8 @@ void print_sensors(void){
   Serial.end();
 }
 
-/*
- *
+/**
+ * Set APRS Baud rate to 1200
  */
 void set_nada_1200(void){
   digitalWrite(APRS_PWM_OUT, true);
@@ -1019,6 +1048,9 @@ void set_nada_1200(void){
   delayMicroseconds(tc1200);
 }
 
+/**
+ * Set APRS Baud rate to 2400
+ */
 void set_nada_2400(void){
   digitalWrite(APRS_PWM_OUT, true);
   //PORTB |= (1<<PB4);
@@ -1035,8 +1067,11 @@ void set_nada_2400(void){
   delayMicroseconds(tc2400);
 }
 
-void set_nada(bool nada)
-{
+/**
+ * Set baud rate
+ * @param nada bool
+ */
+void set_nada(bool nada){
   if(nada)
     set_nada_1200();
   else
@@ -1050,8 +1085,7 @@ void set_nada(bool nada)
  * Using 0x1021 as polynomial generator. The CRC registers are initialized with
  * 0xFFFF
  */
-void calc_crc(bool in_bit)
-{
+void calc_crc(bool in_bit){
   unsigned short xor_in;
 
   xor_in = crc ^ in_bit;
@@ -1061,8 +1095,7 @@ void calc_crc(bool in_bit)
     crc ^= 0x8408;
 }
 
-void send_crc(void)
-{
+void send_crc(void){
   unsigned char crc_lo = crc ^ 0xff;
   unsigned char crc_hi = (crc >> 8) ^ 0xff;
 
@@ -1070,6 +1103,10 @@ void send_crc(void)
   send_char_NRZI(crc_hi, true);
 }
 
+/**
+ * Send APRS Header
+ * @param msg_type msg type
+ */
 void send_header(char msg_type){
   char temp;
 
@@ -1137,6 +1174,14 @@ void send_header(char msg_type){
   send_char_NRZI(_PID, true);
 }
 
+/**
+ * Send APRS Payload
+ * @param type _FIXPOS         1
+ *             _FIXPOS_STATUS  2
+ *             _STATUS         3
+ *             _BEACON         4
+ *             _TELEMETRY      5
+ */
 void send_payload(char type){
   /*
    * APRS AX.25 Payloads
@@ -1270,11 +1315,20 @@ void send_char_NRZI(unsigned char in_byte, bool enBitStuff){
   }
 }
 
+/**
+ * Given a string send it via aprs
+ * @param in_string
+ * @param len
+ */
 void send_string_len(const char *in_string, int len){
   for(int j=0; j<len; j++)
     send_char_NRZI(in_string[j], true);
 }
 
+/**
+ * Send flag
+ * @param flag_len
+ */
 void send_flag(unsigned char flag_len){
   for(int j=0; j<flag_len; j++)
     send_char_NRZI(_FLAG, LOW);
@@ -1327,6 +1381,9 @@ void randomize(unsigned int &var, unsigned int low, unsigned int high){
   var = random(low, high);
 }
 
+/**
+ * Print summary of code at the beginning
+ */
 void print_code_version(void){
   Serial.println(" ");
   Serial.print("Sketch:   ");   Serial.println(__FILE__);
@@ -1336,6 +1393,10 @@ void print_code_version(void){
   Serial.println("APRS Transmitter - Started ! \n");
 }
 
+/**
+ * Output debug as a TNC format
+ * @param type 
+ */
 void print_debug(char type){
   /*
    * PROTOCOL DEBUG.
