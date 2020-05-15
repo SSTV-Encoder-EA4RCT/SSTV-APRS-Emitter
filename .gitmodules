@@ -1,0 +1,27 @@
+[submodule "lib/Adafruit_GPS"]
+	path = lib/Adafruit_GPS
+	url = https://github.com/adafruit/Adafruit_GPS.git
+[submodule "lib/DueTimer"]
+	path = lib/DueTimer
+	url = https://github.com/ivanseidel/DueTimer.git
+[submodule "lib/lps-arduino"]
+	path = lib/lps-arduino
+	url = https://github.com/pololu/lps-arduino.git
+[submodule "lib/lis3mdl-arduino"]
+	path = lib/lis3mdl-arduino
+	url = https://github.com/pololu/lis3mdl-arduino.git
+[submodule "lib/lsm6-arduino"]
+	path = lib/lsm6-arduino
+	url = https://github.com/pololu/lsm6-arduino.git
+[submodule "lib/JPEGDecoder"]
+	path = lib/JPEGDecoder
+	url = https://github.com/MakotoKurauchi/JPEGDecoder.git
+[submodule "lib/AD9850"]
+	path = lib/AD9850
+	url = https://github.com/F4GOJ/AD9850.git
+[submodule "lib/Adafruit-VC0706-Serial-Camera-Library"]
+	path = lib/Adafruit-VC0706-Serial-Camera-Library
+	url = https://github.com/adafruit/Adafruit-VC0706-Serial-Camera-Library.git
+[submodule "lib/SD"]
+	path = lib/SD
+	url = https://github.com/adafruit/SD.git
